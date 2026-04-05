@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Linear Situation Matching</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .draggable-item {
+            cursor: grab;
+            transition: all 0.2s;
+            user-select: none;
+        }
+        .draggable-item:active {
+            cursor: grabbing;
+        }
+        .drop-zone {
+            transition: all 0.3s;
+            min-height: 100px;
+        }
+        .drop-zone.over {
+            background-color: #dbeafe;
+            border-color: #3b82f6;
+            transform: scale(1.02);
+        }
+        .matched {
+            background-color: #f0fdf4;
+            border-color: #22c55e;
+        }
+        canvas {
+            background-color: white;
+            border-radius: 8px;
+            width: 100%;
+            height: auto;
+        }
+        .shake {
+            animation: shake 0.5s;
+        }
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+    </style>
+</head>
+<body class="bg-slate-100 min-h-screen p-4 md:p-8 font-sans">
+
+    <div class="max-w-7xl mx-auto">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl font-bold text-slate-800">Slopes, Vertical Intercepts, and Graphs</h1>
+            <p class="text-slate-600 mt-2">Drag the situation card on the left to the graph that represents it on the right.</p>
+            <div id="statusHeader" class="mt-4 text-lg font-semibold text-blue-600 bg-blue-50 inline-block px-6 py-2 rounded-full border border-blue-100">
+                Matches Found: <span id="matchCount">0</span> / 6
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            
+            <!-- Situations Column (Draggables) -->
+            <div id="situationsList" class="lg:col-span-5 space-y-4">
+                <h2 class="text-xl font-bold text-slate-700 mb-4 px-2 flex items-center">
+                    <span class="bg-slate-700 text-white w-8 h-8 rounded-full inline-flex items-center justify-center mr-2 text-sm">1</span>
+                    Read Situations
+                </h2>
+                <!-- Situation items injected here -->
+            </div>
+
+            <!-- Graphs Column (Drop Zones) -->
+            <div class="lg:col-span-7">
+                <h2 class="text-xl font-bold text-slate-700 mb-4 px-2 flex items-center">
+                    <span class="bg-slate-700 text-white w-8 h-8 rounded-full inline-flex items-center justify-center mr-2 text-sm">2</span>
+                    Match to Graphs
+                </h2>
+                <div id="graphsList" class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                    <!-- Graph items injected here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Success Message -->
+        <div id="winOverlay" class="fixed inset-0 bg-slate-900/80 hidden flex flex-col items-center justify-center z-50 p-6 text-center">
+            <div class="bg-white p-10 rounded-3xl shadow-2xl max-w-md">
+                <div class="text-7xl mb-6">🎯</div>
+                <h2 class="text-4xl font-bold text-slate-800 mb-2">Excellent Work!</h2>
+                <p class="text-slate-600 text-lg mb-8">You successfully identified the relationship between the stories, slopes, and intercepts.</p>
+                <button onclick="location.reload()" class="px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl transition-all shadow-lg transform hover:scale-105">
+                    Play Again
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const data = [
+            { 
+                id: 'A', 
+                text: "Lin's dad bought a tablet. He pays the same amount each month for a subscription to a movie streaming service. The graph represents how much money he spent, y, for the tablet and x months of the service. The slope of the line is 10.", 
+                slope: 10, startY: 50, graphId: 1, config: { maxY: 150, maxX: 10, stepY: 20 } 
+            },
+            { 
+                id: 'B', 
+                text: "The graph represents the perimeter, y, of a square whose side length is x. The slope of the line is 4.", 
+                slope: 4, startY: 0, graphId: 6, config: { maxY: 40, maxX: 10, stepY: 10 } 
+            },
+            { 
+                id: 'C', 
+                text: "Diego puts his piggy bank on his desk. Each week he adds the same amount of money to his bank. The graph represents the amount in the piggy bank, y, after x weeks. The slope of the line is 5.", 
+                slope: 5, startY: 20, graphId: 3, config: { maxY: 100, maxX: 12, stepY: 20 } 
+            },
+            { 
+                id: 'D', 
+                text: "Noah starts his piggy bank off with money he's saved helping a neighbor out. Each month he adds the same amount of money to his bank. The graph represents the amount in the piggy bank, y, after x months. The slope of the line is 15.", 
+                slope: 15, startY: 40, graphId: 2, config: { maxY: 180, maxX: 10, stepY: 20 } 
+            },
+            { 
+                id: 'E', 
+                text: "Elena adds a quarter to her piggy bank every day. The graph represents the number of dollars, y, in her piggy bank x days after she put the piggy bank in the closet. The slope of the line is 0.25.", 
+                slope: 0.25, startY: 9, graphId: 5, config: { maxY: 12, maxX: 12, stepY: 2 } 
+            },
+            { 
+                id: 'F', 
+                text: "Lin's mom pays the same amount each month for internet service for her business tablet. The graph represents how much money she spent, y, for x months of service. The slope of the line is 40.", 
+                slope: 40, startY: 0, graphId: 4, config: { maxY: 240, maxX: 6, stepY: 40 } 
+            }
+        ];
+
+        let matchedIds = new Set();
+        let draggedElement = null;
+
+        function drawGraph(canvas, item) {
+            const ctx = canvas.getContext('2d');
+            const w = canvas.width;
+            const h = canvas.height;
+            const padding = 40;
+            const config = item.config;
+            
+            ctx.clearRect(0, 0, w, h);
+            
+            // Grid lines
+            ctx.strokeStyle = '#f1f5f9';
+            ctx.lineWidth = 1;
+            for(let x = 0; x <= config.maxX; x++) {
+                const px = padding + (x / config.maxX) * (w - padding * 2);
+                ctx.beginPath(); ctx.moveTo(px, padding); ctx.lineTo(px, h - padding); ctx.stroke();
+            }
+            for(let y = 0; y <= config.maxY; y += config.stepY) {
+                const py = (h - padding) - (y / config.maxY) * (h - padding * 2);
+                ctx.beginPath(); ctx.moveTo(padding, py); ctx.lineTo(w - padding, py); ctx.stroke();
+                
+                ctx.fillStyle = '#94a3b8';
+                ctx.font = '10px sans-serif';
+                ctx.textAlign = 'right';
+                ctx.fillText(y, padding - 8, py + 4);
+            }
+
+            // X-axis Labels
+            for(let x = 0; x <= config.maxX; x += (config.maxX > 10 ? 2 : 1)) {
+                const px = padding + (x / config.maxX) * (w - padding * 2);
+                ctx.fillStyle = '#94a3b8';
+                ctx.textAlign = 'center';
+                ctx.fillText(x, px, h - padding + 15);
+            }
+
+            // Axes
+            ctx.strokeStyle = '#475569';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(padding, padding); ctx.lineTo(padding, h - padding); ctx.lineTo(w - padding, h - padding);
+            ctx.stroke();
+
+            // The Function Line
+            ctx.strokeStyle = '#2563eb';
+            ctx.lineWidth = 3;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            
+            const startX_px = padding;
+            const startY_px = (h - padding) - (item.startY / config.maxY) * (h - padding * 2);
+            
+            const endX = config.maxX;
+            const endYVal = Math.min(item.startY + (item.slope * endX), config.maxY);
+            const actualEndX = (endYVal - item.startY) / (item.slope || 1);
+            
+            const endX_px = padding + (actualEndX / config.maxX) * (w - padding * 2);
+            const endY_px = (h - padding) - (endYVal / config.maxY) * (h - padding * 2);
+
+            ctx.moveTo(startX_px, startY_px);
+            ctx.lineTo(endX_px, endY_px);
+            ctx.stroke();
+        }
+
+        function init() {
+            const situationsContainer = document.getElementById('situationsList');
+            const graphsContainer = document.getElementById('graphsList');
+
+            // Randomize Situations list
+            const shuffledSituations = [...data].sort(() => Math.random() - 0.5);
+            shuffledSituations.forEach(item => {
+                const div = document.createElement('div');
+                div.id = `sit-${item.id}`;
+                div.draggable = true;
+                div.className = "draggable-item bg-white p-5 rounded-xl border-2 border-slate-200 shadow-sm hover:border-blue-400 hover:shadow-md transition-all";
+                div.innerHTML = `
+                    <div class="flex items-start gap-3">
+                        <span class="bg-blue-50 text-blue-700 font-bold px-2 py-1 rounded text-sm mt-1">Situation</span>
+                        <p class="text-slate-700 leading-relaxed text-sm md:text-base">${item.text}</p>
+                    </div>
+                `;
+                
+                div.addEventListener('dragstart', (e) => {
+                    draggedElement = div;
+                    e.dataTransfer.setData('text/plain', item.id);
+                    div.classList.add('opacity-50', 'ring-2', 'ring-blue-500');
+                });
+                
+                div.addEventListener('dragend', () => {
+                    div.classList.remove('opacity-50', 'ring-2', 'ring-blue-500');
+                });
+
+                situationsContainer.appendChild(div);
+            });
+
+            // Randomize Graphs grid
+            const shuffledGraphs = [...data].sort(() => Math.random() - 0.5);
+            shuffledGraphs.forEach(item => {
+                const container = document.createElement('div');
+                container.className = "flex flex-col gap-3";
+                
+                const canvasBox = document.createElement('div');
+                canvasBox.className = "bg-white p-3 rounded-2xl border-2 border-slate-200 shadow-sm relative";
+                
+                const canvas = document.createElement('canvas');
+                canvas.width = 300;
+                canvas.height = 220;
+                drawGraph(canvas, item);
+                
+                const label = document.createElement('div');
+                label.className = "text-center text-xs font-bold text-slate-400 uppercase tracking-widest mt-2";
+                label.innerText = `Graph ${item.graphId}`;
+
+                const dropZone = document.createElement('div');
+                dropZone.className = "drop-zone border-2 border-dashed border-slate-300 rounded-xl flex items-center justify-center p-4 text-sm text-slate-400 italic text-center leading-tight";
+                dropZone.innerText = "Drag the matching situation here";
+                dropZone.dataset.correctId = item.id;
+
+                // Drag and Drop Events
+                dropZone.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    if (!matchedIds.has(item.id)) dropZone.classList.add('over');
+                });
+
+                dropZone.addEventListener('dragleave', () => {
+                    dropZone.classList.remove('over');
+                });
+
+                dropZone.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    dropZone.classList.remove('over');
+                    const droppedId = e.dataTransfer.getData('text/plain');
+                    
+                    if (droppedId === item.id) {
+                        handleMatch(droppedId, dropZone);
+                    } else {
+                        handleMismatch(dropZone);
+                    }
+                });
+
+                canvasBox.appendChild(canvas);
+                canvasBox.appendChild(label);
+                container.appendChild(canvasBox);
+                container.appendChild(dropZone);
+                graphsContainer.appendChild(container);
+            });
+        }
+
+        function handleMatch(id, zone) {
+            matchedIds.add(id);
+            const sitEl = document.getElementById(`sit-${id}`);
+            sitEl.classList.add('hidden'); 
+            
+            zone.classList.remove('over', 'border-dashed', 'text-slate-400');
+            zone.classList.add('matched', 'border-solid', 'text-green-700', 'font-bold');
+            zone.innerHTML = `
+                <div class="flex items-center gap-2">
+                    <span class="text-xl">✅</span>
+                    <span>Matched Situation ${id}</span>
+                </div>
+            `;
+            
+            document.getElementById('matchCount').innerText = matchedIds.size;
+            
+            if (matchedIds.size === 6) {
+                setTimeout(() => {
+                    document.getElementById('winOverlay').classList.remove('hidden');
+                }, 500);
+            }
+        }
+
+        function handleMismatch(zone) {
+            zone.classList.add('shake', 'bg-red-50', 'border-red-300', 'text-red-500');
+            const originalText = zone.innerText;
+            zone.innerText = "❌ Incorrect slope or intercept";
+            
+            setTimeout(() => {
+                zone.classList.remove('shake', 'bg-red-50', 'border-red-300', 'text-red-500');
+                zone.innerText = originalText;
+            }, 1200);
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>
